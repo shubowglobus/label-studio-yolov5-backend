@@ -17,6 +17,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from minio import Minio
 from pydantic import BaseModel
+from label_studio_tools.core.utils.params import get_env
 
 # ----------------------------------------------------------------------------
 
@@ -68,7 +69,8 @@ def _pred_dict(model_version: str, x: float, y: float, w: float, h: float,
 
 
 @app.post('/predict')
-def predict_endpoint(task: Task) -> Union[JSONResponse, dict]:
+def predict_endpoint(task: Task) -> JSONResponse:
+    print(task)
     _task = task.task
     if not _task.get('project'):
         if task.project:
@@ -87,21 +89,32 @@ def predict_endpoint(task: Task) -> Union[JSONResponse, dict]:
     model = model_dict['model']
 
     image_url = task['data']['image']
-    img = Path(image_url)
-
-    with tempfile.NamedTemporaryFile() as f:
-        if image_url.startswith('http'):
-            r = requests.get(image_url)
-            if r.status_code == 200:
-                f.write(r.content)
-            else:
-                return JSONResponse(content=r.text, status_code=404)
+    if image_url.startswith('/data/'):
+        if image_url.startswith('/data/local-files'):
+            _root = "/app/local_storage"
+            _, img_path = image_url.split('/data/', 1)[-1].split('?d=')
+            img_path = os.path.join(_root, img_path)
+            model_preds = model(img_path)
         else:
-            image_data = s3.get_object(img.parent.name, img.name)
-            f.write(image_data.read())
-        f.seek(0)
+            _root = "/app/data_store"
+            _, img_path = image_url.split('/data/', 1)[-1].split('?d=')
+            img_path = os.path.join(_root, img_path)
+            model_preds = model(img_path)
+    else:
+        img = Path(image_url)
 
-        model_preds = model(f.name)
+        with tempfile.NamedTemporaryFile() as f:
+            if image_url.startswith('http'):
+                r = requests.get(image_url)
+                if r.status_code == 200:
+                    f.write(r.content)
+                else:
+                    return JSONResponse(content=r.text, status_code=404)
+            else:
+                image_data = s3.get_object(img.parent.name, img.name)
+                f.write(image_data.read())
+            f.seek(0)
+            model_preds = model(f.name)
 
     pred_xywhn = model_preds.xywhn[0]
     scores = []
@@ -126,6 +139,8 @@ def predict_endpoint(task: Task) -> Union[JSONResponse, dict]:
     pred = {'result': results}
     if scores:
         pred['score'] = statistics.mean(scores)
+        
+    print(pred)
 
     return JSONResponse(status_code=200, content=pred)
 
@@ -143,9 +158,9 @@ if __name__ == '__main__':
         for p in m['projects']:
             MODELS.update({p: load_model(m['weights'], m['model_version'])})
 
-    s3_endpoint = re.sub(r'https?://', '', os.environ['S3_ENDPOINT'])
-    s3 = Minio(s3_endpoint,
-               access_key=os.environ['S3_ACCESS_KEY'],
-               secret_key=os.environ['S3_SECRET_KEY'])
+    # s3_endpoint = re.sub(r'https?://', '', os.environ['S3_ENDPOINT'])
+    # s3 = Minio(s3_endpoint,
+    #            access_key=os.environ['S3_ACCESS_KEY'],
+    #            secret_key=os.environ['S3_SECRET_KEY'])
 
     uvicorn.run(app, host='0.0.0.0', port=8000)  # noqa
