@@ -15,3 +15,5 @@ services:
       - LABEL_STUDIO_BG_LABEL=${LABEL_STUDIO_BG_LABEL}
     volumes:
       - ./weights:/app/weights
+      - ${LOCAL_DATA_ROOT}:/app/data_store
+      - ${LOCAL_FILE_STORAGE_ROOT}:/app/local_storage
