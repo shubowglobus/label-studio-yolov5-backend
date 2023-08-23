@@ -51,7 +51,7 @@ def _yolo_to_ls(model, x: float, y: float, width: float, height: float,
 
 
 def _pred_dict(model_version: str, x: float, y: float, w: float, h: float,
-               score: float, label: str) -> dict:
+               score: float, label: str, from_name='label') -> dict:
     return {
         'type': 'rectanglelabels',
         'score': score,
@@ -63,7 +63,7 @@ def _pred_dict(model_version: str, x: float, y: float, w: float, h: float,
             'rectanglelabels': [label]
         },
         'to_name': 'image',
-        'from_name': 'label',
+        'from_name': from_name,
         'model_version': model_version
     }
 
@@ -84,22 +84,16 @@ def predict_endpoint(task: Task) -> JSONResponse:
                 'contain a project id number!')
     task = _task
 
-    model_dict = MODELS[task['project']]
-    model_version = model_dict['model_version']
-    model = model_dict['model']
-
     image_url = task['data']['image']
     if image_url.startswith('/data/'):
         if image_url.startswith('/data/local-files'):
             _root = "/app/local_storage"
             _, img_path = image_url.split('/data/', 1)[-1].split('?d=')
             img_path = os.path.join(_root, img_path)
-            model_preds = model(img_path)
         else:
             _root = "/app/data_store"
             _, img_path = image_url.split('/data/', 1)[-1].split('?d=')
             img_path = os.path.join(_root, img_path)
-            model_preds = model(img_path)
     else:
         img = Path(image_url)
 
@@ -114,17 +108,24 @@ def predict_endpoint(task: Task) -> JSONResponse:
                 image_data = s3.get_object(img.parent.name, img.name)
                 f.write(image_data.read())
             f.seek(0)
-            model_preds = model(f.name)
-
-    pred_xywhn = model_preds.xywhn[0]
+            img_path = f.name
+    
+    model_dict = MODELS[task['project']]
     scores = []
     results = []
+    
+    for from_name, model_dict in model_dict.items():
+        model_version = model_dict['model_version']
+        model = model_dict['model']
+        model_preds = model(img_path)
 
-    for pred in pred_xywhn:
-        _result = _yolo_to_ls(model, *pred)
-        result = _pred_dict(model_version, *_result)
-        scores.append(result['score'])
-        results.append(result)
+        pred_xywhn = model_preds.xywhn[0]
+
+        for pred in pred_xywhn:
+            _result = _yolo_to_ls(model, *pred)
+            result = _pred_dict(model_version, *_result, from_name)
+            scores.append(result['score'])
+            results.append(result)
 
     if not results:
         results.append({
@@ -156,7 +157,17 @@ if __name__ == '__main__':
     MODELS = {}
     for m in models_config:
         for p in m['projects']:
-            MODELS.update({p: load_model(m['weights'], m['model_version'])})
+            if p['project_id'] in MODELS.keys():
+                MODELS[p['project_id']].update(
+                    {p["from_name"]: load_model(m['weights'], m['model_version'])}
+                )
+            else:
+                MODELS.update(
+                    {
+                        p['project_id']: 
+                        {p["from_name"]: load_model(m['weights'], m['model_version'])}
+                    }
+                )
 
     # s3_endpoint = re.sub(r'https?://', '', os.environ['S3_ENDPOINT'])
     # s3 = Minio(s3_endpoint,

@@ -2,18 +2,18 @@
     {
         "projects":
         [
-            1,
-            2
+            {"project_id": 15, "from_name": "label"}
         ],
-        "weights": "/weights/mymodel.pt",
-        "model_version": "MyModel-v1.0.0"
+        "weights": "/app/weights/implant_detection_best",
+        "model_version": "Yolov5s-v1.0.0-best"
     },
+    
     {
         "projects":
         [
-            3
+            {"project_id": 15, "from_name": "label2"}
         ],
-        "weights": "/weights/myothermodel.pt",
-        "model_version": "MyOtherModel-v1.2.0-alpha.6"
+        "weights": "/app/weights/YoloV5x_Spine.pt",
+        "model_version": "YoloV5x_Spine"
     }
 ]
